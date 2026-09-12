@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Focus</string>
+    <string name="device_admin_description">Enabling this prevents the app from being uninstalled during active focus sessions.</string>
+</resources>

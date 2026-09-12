@@ -1,0 +1,7 @@
+com.example.androidkotlinapp-pngs-0 /Volumes/ExternalSSD/Focus/AndroidKotlinApp/app/build/generated/res/pngs/debug
+com.example.androidkotlinapp-updated_navigation_xml-1 /Volumes/ExternalSSD/Focus/AndroidKotlinApp/app/build/generated/updated_navigation_xml/debug
+com.example.androidkotlinapp-packageDebugResources-2 /Volumes/ExternalSSD/Focus/AndroidKotlinApp/app/build/intermediates/incremental/debug/packageDebugResources/merged.dir
+com.example.androidkotlinapp-packageDebugResources-3 /Volumes/ExternalSSD/Focus/AndroidKotlinApp/app/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
+com.example.androidkotlinapp-debug-4 /Volumes/ExternalSSD/Focus/AndroidKotlinApp/app/build/intermediates/merged_res/debug/mergeDebugResources
+com.example.androidkotlinapp-debug-5 /Volumes/ExternalSSD/Focus/AndroidKotlinApp/app/src/debug/res
+com.example.androidkotlinapp-main-6 /Volumes/ExternalSSD/Focus/AndroidKotlinApp/app/src/main/res

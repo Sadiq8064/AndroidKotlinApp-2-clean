@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#000000</color>
+    <string name="app_name">Focus</string>
+    <string name="device_admin_description">Enabling this prevents the app from being uninstalled during active focus sessions.</string>
+    <style name="Theme.AndroidKotlinApp" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+    </style>
+</resources>

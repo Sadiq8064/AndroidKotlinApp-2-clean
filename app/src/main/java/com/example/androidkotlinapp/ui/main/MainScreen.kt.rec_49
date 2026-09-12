@@ -1,0 +1,801 @@
+package com.example.androidkotlinapp.ui.main
+
+import android.app.AppOpsManager
+import androidx.activity.compose.BackHandler
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Process
+import android.provider.Settings
+import android.text.TextUtils
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.DateRange
+import androidx.core.graphics.drawable.toBitmap
+import androidx.navigation3.runtime.NavKey
+import com.example.androidkotlinapp.FocusService
+import com.example.androidkotlinapp.UrlBlockerService
+import com.example.androidkotlinapp.WhitelistManager
+import com.example.androidkotlinapp.BlockerActivity
+import com.example.androidkotlinapp.AnalyticsActivity
+
+data class AppInfoCache(
+    val name: String,
+    val packageName: String,
+    val icon: ImageBitmap?
+)
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen(
+    onItemClick: (NavKey) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var hasUsagePermission by remember { mutableStateOf(hasUsageStatsPermission(context)) }
+    var hasAccessibilityPermission by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+    var isAdminEnabled by remember { mutableStateOf(isAdminActive(context)) }
+    
+    var selectedDuration by remember { mutableStateOf(25) } // Duration in minutes
+    var showCustomTimeSheet by remember { mutableStateOf(false) }
+    var showStartConfirmationSheet by remember { mutableStateOf(false) }
+    var isEditingAllowedApps by remember { mutableStateOf(false) }
+
+    var selectedDaysVal by remember { mutableStateOf(0) }
+    var selectedHoursVal by remember { mutableStateOf(0) }
+    var selectedMinutesVal by remember { mutableStateOf(0) }
+
+    // Memory cached app list loaded in background
+    var installedApps by remember { mutableStateOf<List<AppInfoCache>>(emptyList()) }
+    var isLoadingApps by remember { mutableStateOf(true) }
+
+    // Periodically update permission statuses
+    LaunchedEffect(Unit) {
+        while (true) {
+            hasUsagePermission = hasUsageStatsPermission(context)
+            hasAccessibilityPermission = isAccessibilityServiceEnabled(context)
+            isAdminEnabled = isAdminActive(context)
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    // Load installed apps and convert their icons to ImageBitmaps on a background thread for lag-free rendering
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val pm = context.packageManager
+            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            val resolved = pm.queryIntentActivities(mainIntent, 0)
+            val list = resolved.map {
+                val pkg = it.activityInfo.packageName
+                val name = it.loadLabel(pm).toString()
+                val icon = try {
+                    val drawable = pm.getApplicationIcon(pkg)
+                    // Convert to lightweight 120x120 bitmap on background thread
+                    drawable.toBitmap(width = 120, height = 120).asImageBitmap()
+                } catch (e: Exception) {
+                    null
+                }
+                AppInfoCache(name, pkg, icon)
+            }.distinctBy { it.packageName }.sortedBy { it.name }
+            
+            installedApps = list
+            isLoadingApps = false
+        }
+    }
+
+    if (isEditingAllowedApps) {
+        // Full screen Whitelisted Apps Grid
+        AllowedAppsScreen(
+            installedApps = installedApps,
+            initialSelected = WhitelistManager.getWhitelistedPackages(context),
+            onBack = { isEditingAllowedApps = false },
+            onSave = { updatedSelection ->
+                WhitelistManager.saveWhitelistedPackages(context, updatedSelection)
+                isEditingAllowedApps = false
+            }
+        )
+    } else {
+        // Main Circle Timer dashboard
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color(0xFF000000)) // Pure black background
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // 1. Full-Width Premium App Bar Header
+            val context = LocalContext.current
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .background(Color.Black)
+                    .padding(start = 16.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Spacer(modifier = Modifier.width(48.dp)) // spacer to center the title text
+
+                Text(
+                    text = "Focus",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+
+                IconButton(
+                    onClick = {
+                        val intent = Intent(context, AnalyticsActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Canvas(modifier = Modifier.size(20.dp)) {
+                        val w = size.width
+                        val h = size.height
+                        drawRect(
+                            color = Color(0xFF4CAF50),
+                            topLeft = androidx.compose.ui.geometry.Offset(x = w * 0.12f, y = h * 0.55f),
+                            size = androidx.compose.ui.geometry.Size(width = w * 0.2f, height = h * 0.45f)
+                        )
+                        drawRect(
+                            color = Color(0xFF4CAF50),
+                            topLeft = androidx.compose.ui.geometry.Offset(x = w * 0.4f, y = h * 0.15f),
+                            size = androidx.compose.ui.geometry.Size(width = w * 0.2f, height = h * 0.85f)
+                        )
+                        drawRect(
+                            color = Color(0xFF4CAF50),
+                            topLeft = androidx.compose.ui.geometry.Offset(x = w * 0.68f, y = h * 0.35f),
+                            size = androidx.compose.ui.geometry.Size(width = w * 0.2f, height = h * 0.65f)
+                        )
+                    }
+                }
+            }
+
+            // Padded inner content container
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Centered Group for Timer and Quick Selects
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    CircularTimer(
+                        durationMinutes = selectedDuration,
+                        onClick = {
+                            selectedDaysVal = 0
+                            selectedHoursVal = 0
+                            selectedMinutesVal = 0
+                            showCustomTimeSheet = true
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    val isPreset = selectedDuration in listOf(25, 45, 60)
+
+                    if (isPreset) {
+                        // Quick select durations
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            listOf(25, 45, 60).forEach { mins ->
+                                val isSelected = selectedDuration == mins
+                                Button(
+                                    onClick = { selectedDuration = mins },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isSelected) Color(0xFF132A17) else Color(0xFF000000),
+                                        contentColor = Color.White
+                                    ),
+                                    border = if (isSelected) BorderStroke(1.dp, Color(0xFF4CAF50)) else BorderStroke(1.dp, Color(0xFF222222)),
+                                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp).height(38.dp)
+                                ) {
+                                    Text(
+                                        text = "$mins min",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        // Custom selected display card
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .background(Color(0xFF121212), shape = RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFF222222), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val hrs = selectedDuration / 60
+                            val mins = selectedDuration % 60
+                            val timeStr = if (hrs > 0) {
+                                if (mins > 0) "$hrs hr $mins min" else "$hrs hr"
+                            } else {
+                                "$mins min"
+                            }
+                            Text(
+                                text = "Custom duration: $timeStr",
+                                color = Color(0xFF81C784),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "RESET",
+                                color = Color(0xFFE57373),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clickable { selectedDuration = 25 }
+                                    .padding(4.dp)
+                            )
+                        }
+                    }
+                }
+
+            // 3. Bottom Controls (Allowed Apps & Start Button)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Allowed Apps Trigger
+                Button(
+                    onClick = { isEditingAllowedApps = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF000000)),
+                    border = BorderStroke(0.dp, Color.Transparent),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                        .height(48.dp)
+                ) {
+                    Text(
+                        text = "ALLOWED APPS",
+                        color = Color(0xFF81C784),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                // Start Focus Session Button
+                Button(
+                    onClick = {
+                        // Auto-prompt permission configurations sequentially if missing
+                        if (!hasUsagePermission) {
+                            Toast.makeText(context, "Please enable Usage Access first", Toast.LENGTH_LONG).show()
+                            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                            context.startActivity(intent)
+                        } else if (!hasAccessibilityPermission) {
+                            Toast.makeText(context, "Please enable Accessibility Blocker Service", Toast.LENGTH_LONG).show()
+                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            context.startActivity(intent)
+                        } else if (!isAdminEnabled) {
+                            Toast.makeText(context, "Please activate Uninstall Lock (Device Admin) next", Toast.LENGTH_LONG).show()
+                            requestAdminPermission(context)
+                        } else {
+                            showStartConfirmationSheet = true
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1B3B22),
+                        disabledContainerColor = Color(0xFF2E2E2E)
+                    ),
+                    border = BorderStroke(1.dp, Color(0xFF4CAF50)),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(bottom = 8.dp)
+                ) {
+                    Text(
+                        text = if (hasUsagePermission && hasAccessibilityPermission && isAdminEnabled) "START FOCUS SESSION" else "GRANT PERMISSIONS TO START",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    }
+    }
+
+    // A. Custom Time Bottom Sheet
+    if (showCustomTimeSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showCustomTimeSheet = false },
+            containerColor = Color.Transparent // Allow custom background gradient to draw perfectly
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF0C1D12), Color(0xFF000000))
+                        )
+                    )
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Set Custom Duration",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    // Days Dropdown Picker (0 to 7)
+                    ScrollableDropdownPicker(
+                        label = "DAYS",
+                        value = selectedDaysVal,
+                        options = (0..7).toList(),
+                        onValueChange = { selectedDaysVal = it }
+                    )
+
+                    // Hours Dropdown Picker (0 to 24)
+                    ScrollableDropdownPicker(
+                        label = "HOURS",
+                        value = selectedHoursVal,
+                        options = (0..24).toList(),
+                        onValueChange = { selectedHoursVal = it }
+                    )
+
+                    // Minutes Dropdown Picker (0 to 59)
+                    ScrollableDropdownPicker(
+                        label = "MINUTES",
+                        value = selectedMinutesVal,
+                        options = (0..59).toList(),
+                        onValueChange = { selectedMinutesVal = it }
+                    )
+                }
+
+                val totalMins = (selectedDaysVal.toLong() * 24 * 60) + (selectedHoursVal.toLong() * 60) + selectedMinutesVal
+                
+                val targetCal = java.util.Calendar.getInstance().apply {
+                    timeInMillis = System.currentTimeMillis() + totalMins * 60 * 1000
+                }
+                val todayCal = java.util.Calendar.getInstance()
+                val tomorrowCal = java.util.Calendar.getInstance().apply {
+                    add(java.util.Calendar.DAY_OF_YEAR, 1)
+                }
+
+                val isToday = targetCal.get(java.util.Calendar.YEAR) == todayCal.get(java.util.Calendar.YEAR) &&
+                              targetCal.get(java.util.Calendar.DAY_OF_YEAR) == todayCal.get(java.util.Calendar.DAY_OF_YEAR)
+
+                val isTomorrow = targetCal.get(java.util.Calendar.YEAR) == tomorrowCal.get(java.util.Calendar.YEAR) &&
+                                 targetCal.get(java.util.Calendar.DAY_OF_YEAR) == tomorrowCal.get(java.util.Calendar.DAY_OF_YEAR)
+
+                val timeFormat = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                val timeStr = timeFormat.format(targetCal.time)
+
+                val summaryText = when {
+                    totalMins == 0L -> "Select duration to view unlock time"
+                    isToday -> "Your app will be unlocked today at $timeStr"
+                    isTomorrow -> "Your app will be unlocked tomorrow at $timeStr"
+                    else -> {
+                        val dateFormat = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
+                        val dateStr = dateFormat.format(targetCal.time)
+                        "Your app will be unlocked on $dateStr at $timeStr"
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = summaryText,
+                    color = if (totalMins > 0) Color(0xFF81C784) else Color.Gray,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(
+                    onClick = {
+                        if (totalMins > 0) {
+                            selectedDuration = totalMins.toInt()
+                            showCustomTimeSheet = false
+                        } else {
+                            Toast.makeText(context, "Please select a duration greater than 0", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text("Apply Time", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
+    // B. Start Focus Session Confirmation Bottom Sheet
+    if (showStartConfirmationSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showStartConfirmationSheet = false },
+            containerColor = Color.Transparent
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF0C1D12), Color(0xFF000000))
+                        )
+                    )
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Confirm Focus Session",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+
+                val totalMins = selectedDuration.toLong()
+                val targetCal = java.util.Calendar.getInstance().apply {
+                    timeInMillis = System.currentTimeMillis() + totalMins * 60 * 1000
+                }
+                val todayCal = java.util.Calendar.getInstance()
+                val tomorrowCal = java.util.Calendar.getInstance().apply {
+                    add(java.util.Calendar.DAY_OF_YEAR, 1)
+                }
+
+                val isToday = targetCal.get(java.util.Calendar.YEAR) == todayCal.get(java.util.Calendar.YEAR) &&
+                              targetCal.get(java.util.Calendar.DAY_OF_YEAR) == todayCal.get(java.util.Calendar.DAY_OF_YEAR)
+
+                val isTomorrow = targetCal.get(java.util.Calendar.YEAR) == tomorrowCal.get(java.util.Calendar.YEAR) &&
+                                 targetCal.get(java.util.Calendar.DAY_OF_YEAR) == tomorrowCal.get(java.util.Calendar.DAY_OF_YEAR)
+
+                val timeFormat = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                val timeStr = timeFormat.format(targetCal.time)
+
+                val unlockDayText = when {
+                    isToday -> "today at $timeStr"
+                    isTomorrow -> "tomorrow at $timeStr"
+                    else -> {
+                        val dateFormat = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
+                        val dateStr = dateFormat.format(targetCal.time)
+                        "on $dateStr at $timeStr"
+                    }
+                }
+
+                val d = totalMins / (24 * 60)
+                val h = (totalMins % (24 * 60)) / 60
+                val m = totalMins % 60
+
+                val durationText = buildString {
+                    append("The app will remain blocked for ")
+                    if (d > 0) append("$d days, ")
+                    if (h > 0 || d > 0) append("$h hours, ")
+                    append("$m minutes.")
+                }
+
+                Text(
+                    text = "Your app will be unlocked $unlockDayText.",
+                    color = Color(0xFF81C784),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = durationText,
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Button(
+                        onClick = { showStartConfirmationSheet = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF121212)),
+                        border = BorderStroke(1.dp, Color(0xFF333333)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp).height(50.dp)
+                    ) {
+                        Text("CANCEL", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = {
+                            showStartConfirmationSheet = false
+                            
+                            val serviceIntent = Intent(context, FocusService::class.java).apply {
+                                putExtra("duration_minutes", selectedDuration)
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(serviceIntent)
+                            } else {
+                                context.startService(serviceIntent)
+                            }
+                            
+                            // Launch BlockerActivity immediately to display the centered overlay clock
+                            val blockerIntent = Intent(context, BlockerActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(blockerIntent)
+                            
+                            // Finish MainActivity so it is closed and cannot conflict in the background
+                            (context as? android.app.Activity)?.finish()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp).height(50.dp)
+                    ) {
+                        Text("CONTINUE", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AllowedAppsScreen(
+    installedApps: List<AppInfoCache>,
+    initialSelected: Set<String>,
+    onBack: () -> Unit,
+    onSave: (Set<String>) -> Unit
+) {
+    val context = LocalContext.current
+    var selectedApps by remember { mutableStateOf(initialSelected) }
+    var selectedTab by remember { mutableStateOf("Default") }
+
+    BackHandler {
+        onSave(selectedApps)
+        onBack()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(16.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "CANCEL",
+                color = Color(0xFFE57373),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { onBack() }
+            )
+            Text(
+                text = "ALLOWED APPS",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+            Text(
+                text = "SAVE",
+                color = Color(0xFF4CAF50),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { onSave(selectedApps) }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Ordered defaults (Calling, Messaging, Calculator, Gallery)
+        val defaultPackagesOrder = remember { WhitelistManager.getDefaultPackagesInOrder(context) }
+        
+        // 1. Get default apps in exact order (only if selected)
+        val defaultAppsOrdered = defaultPackagesOrder.mapNotNull { pkg ->
+            if (selectedApps.contains(pkg)) {
+                installedApps.firstOrNull { it.packageName == pkg }
+            } else {
+                null
+            }
+        }
+
+        // 2. Get user-added custom apps (excluding defaults and core background services)
+        val customAppsSelected = installedApps.filter { 
+            selectedApps.contains(it.packageName) && 
+            !defaultPackagesOrder.contains(it.packageName) && 
+            !WhitelistManager.CORE_SYSTEM_PACKAGES.contains(it.packageName) 
+        }
+
+        // 3. Filter shelf list by tab choice
+        val finalShelfList = if (selectedTab == "Default") defaultAppsOrdered else customAppsSelected
+
+        // Tab selection chips
+        Row(
+            modifier = Modifier.padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf("Default", "Extra").forEach { tab ->
+                val isSelected = selectedTab == tab
+                Button(
+                    onClick = { selectedTab = tab },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSelected) Color(0xFF132A17) else Color(0xFF161616),
+                        contentColor = if (isSelected) Color.White else Color.Gray
+                    ),
+                    border = BorderStroke(1.dp, if (isSelected) Color(0xFF4CAF50) else Color(0xFF222222)),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text(tab, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF121212)),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(84.dp)
+                .border(1.dp, Color(0xFF222222), RoundedCornerShape(12.dp))
+        ) {
+            if (finalShelfList.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = if (selectedTab == "Default") "Select default apps below" else "Select the apps you want to use",
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            } else {
+                LazyRow(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    items(finalShelfList) { app ->
+                        val isDefaultApp = defaultPackagesOrder.contains(app.packageName)
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            CachedAppIcon(bitmap = app.icon, modifier = Modifier.size(44.dp))
+                            // Show delete minus circle ONLY for custom user-added apps
+                            if (!isDefaultApp) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .background(Color(0xFFD32F2F), shape = androidx.compose.foundation.shape.CircleShape)
+                                        .clickable { selectedApps = selectedApps - app.packageName },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(8.dp)
+                                            .height(2.dp)
+                                            .background(Color.White)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // All Apps Grid
+        Text(
+            text = "App Drawer Checklist",
+            color = Color.Gray,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+
+        // Filter: Hide both core background system apps AND default whitelisted apps from the lower grid checklist
+        val displayApps = installedApps.filter { 
+            !WhitelistManager.CORE_SYSTEM_PACKAGES.contains(it.packageName) &&
+            !defaultPackagesOrder.contains(it.packageName)
+        }
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(displayApps) { app ->
+                val isChecked = selectedApps.contains(app.packageName)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            selectedApps = if (isChecked) {
+                                selectedApps - app.packageName
+                            } else {
+                                selectedTab = "Extra"
+                                selectedApps + app.packageName
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

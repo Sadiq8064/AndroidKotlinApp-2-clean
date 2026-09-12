@@ -1,0 +1,9 @@
+name = "focus-sync"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# The binding is DB in the worker; the database itself is focus-sync.
+[[d1_databases]]
+binding = "DB"
+database_name = "focus-sync"
+database_id = "99301c62-c16c-4f58-acfd-b0b170ff7a70"
