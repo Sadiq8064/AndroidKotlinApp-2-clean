@@ -1,6 +1,8 @@
 package com.example.androidkotlinapp
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,6 +19,22 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+  // Polled rather than event-driven: a session can start or end from the service, the alarm
+  // ringer, or a face check, none of which are activities that could call
+  // SessionLockdown themselves. A short poll while this screen is resumed is what closes that
+  // gap without wiring a broadcast for every place session state can change.
+  private val lockdownHandler = Handler(Looper.getMainLooper())
+  private val lockdownPoll = object : Runnable {
+    override fun run() {
+      if (SessionLockdown.shouldBeLocked(this@MainActivity)) {
+        SessionLockdown.engage(this@MainActivity)
+      } else {
+        SessionLockdown.release(this@MainActivity)
+      }
+      lockdownHandler.postDelayed(this, 1000L)
+    }
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     CloudSyncManager.syncWithCloud(this)
@@ -55,6 +73,8 @@ class MainActivity : ComponentActivity() {
 
   override fun onResume() {
     super.onResume()
+    lockdownHandler.removeCallbacks(lockdownPoll)
+    lockdownHandler.post(lockdownPoll)
     BlockerActivity.updateRandomQuote()
     // One chip fits under FOCUS, so which reminder gets it advances every time the launcher
     // is returned to. Done here rather than with a lifecycle observer in Compose: this
@@ -91,6 +111,11 @@ class MainActivity : ComponentActivity() {
             androidx.core.content.ContextCompat.startForegroundService(this, serviceIntent)
         }
     }
+  }
+
+  override fun onPause() {
+    super.onPause()
+    lockdownHandler.removeCallbacks(lockdownPoll)
   }
 
   override fun onStop() {

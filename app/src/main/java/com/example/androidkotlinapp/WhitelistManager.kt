@@ -397,6 +397,21 @@ object WhitelistManager {
         editor.apply()
     }
 
+    /**
+     * True once a whitelisted app's per-day time budget for this block session is spent.
+     *
+     * [AppIconWithLimit] already greys the icon out at this point, but nothing stopped a tap
+     * from opening the app anyway -- the ring was purely decorative. [checkAndResetDailyLimits]
+     * is run first so a limit that was actually used up yesterday reads as available again
+     * today, rather than staying stuck at zero until something else happens to reset it.
+     */
+    fun isUsageLimitReached(context: Context, packageName: String): Boolean {
+        checkAndResetDailyLimits(context)
+        val limit = getAppUsageLimitMinutes(context, packageName)
+        if (limit <= 0) return false
+        return getAppUsedSeconds(context, packageName) >= limit * 60
+    }
+
     fun checkAndResetDailyLimits(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_LIMITS, Context.MODE_PRIVATE)
         val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())

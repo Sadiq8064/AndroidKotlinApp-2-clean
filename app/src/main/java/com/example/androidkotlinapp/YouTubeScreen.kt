@@ -1413,30 +1413,30 @@ private fun CountChip(playlist: Boolean, label: String) {
     }
 }
 
-/** Opens a saved link. It is already on file as allowed, so the gate waves it through. */
+/**
+ * Opens a saved link. It is already on file as allowed, so the gate waves it through.
+ *
+ * Left unpackaged deliberately: a Google Docs/Sheets/Slides/Drive link has to reach its own
+ * app, not Chrome. Forcing `setPackage("com.android.chrome")` here used to hand every saved
+ * link straight to Chrome's mobile web view even when the native, always-whitelisted Docs
+ * app was installed -- Chrome's web rendering of a Doc is frequently unable to open it for
+ * real reading, and editing from inside Chrome mid-session drags in Google's sign-in and
+ * picker windows that this app's blocker doesn't recognise as part of the same allowed flow,
+ * which is what closed the app back to the launcher. An ordinary implicit VIEW intent lets
+ * Android's own resolver hand the link to whichever app actually owns it -- Docs, Sheets,
+ * Drive -- and falls back to whatever browser is installed for anything else.
+ */
 private fun openLink(context: android.content.Context, url: String) {
+    BlockerActivity.isLaunchingWhitelistedApp = true
     try {
-        BlockerActivity.isLaunchingWhitelistedApp = true
         context.startActivity(
             android.content.Intent(
                 android.content.Intent.ACTION_VIEW,
                 android.net.Uri.parse(url)
-            ).apply {
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                setPackage("com.android.chrome")
-            }
+            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         )
     } catch (e: Exception) {
-        try {
-            context.startActivity(
-                android.content.Intent(
-                    android.content.Intent.ACTION_VIEW,
-                    android.net.Uri.parse(url)
-                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        } catch (e2: Exception) {
-            e2.printStackTrace()
-        }
+        e.printStackTrace()
     }
 }
 

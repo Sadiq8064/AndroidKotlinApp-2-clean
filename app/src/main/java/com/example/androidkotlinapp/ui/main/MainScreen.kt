@@ -783,6 +783,8 @@ fun MainScreen(
                                                         val isWhitelisted = WhitelistManager.getWhitelistedPackages(context).contains(app.packageName)
                                                         if (isFocusActive && !isWhitelisted) {
                                                             Toast.makeText(context, "${app.name} is blocked during Block Session", Toast.LENGTH_SHORT).show()
+                                                        } else if (isFocusActive && WhitelistManager.isUsageLimitReached(context, app.packageName)) {
+                                                            Toast.makeText(context, "${app.name}'s time is up for today. Try again tomorrow.", Toast.LENGTH_SHORT).show()
                                                         } else {
                                                             val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
                                                             try {
@@ -1397,6 +1399,8 @@ fun MainScreen(
                                                             val isWhitelisted = WhitelistManager.getWhitelistedPackages(context).contains(app.packageName)
                                                             if (isFocusActive && !isWhitelisted) {
                                                                 Toast.makeText(context, "${app.name} is blocked during Block Session", Toast.LENGTH_SHORT).show()
+                                                            } else if (isFocusActive && WhitelistManager.isUsageLimitReached(context, app.packageName)) {
+                                                                Toast.makeText(context, "${app.name}'s time is up for today. Try again tomorrow.", Toast.LENGTH_SHORT).show()
                                                             } else {
                                                                 val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
                                                                 try {
@@ -2111,14 +2115,12 @@ fun MainScreen(
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
                 modifier = Modifier.fillMaxSize()
             ) {
-                val pickerApps = remember(installedApps, defaultDockPackages) {
-                    installedApps.filter { app ->
-                        val isAlwaysAllowed = WhitelistManager.CORE_SYSTEM_PACKAGES.contains(app.packageName) ||
-                                              WhitelistManager.PRODUCTIVITY_DEFAULT_PACKAGES.contains(app.packageName) ||
-                                              defaultDockPackages.contains(app.packageName)
-                        !isAlwaysAllowed
-                    }
-                }
+                // Always-allowed apps (Google Docs among them) are still listed below, just
+                // shown with the "Always allowed" badge and not selectable -- that per-item
+                // handling already exists further down. Filtering them out of this list
+                // entirely, as before, made them disappear from the picker altogether instead
+                // of showing as already-granted.
+                val pickerApps = remember(installedApps) { installedApps }
 
                 Box(
                     modifier = Modifier
@@ -2227,6 +2229,12 @@ fun MainScreen(
                                                 if (isChecked) {
                                                     selectedAllowedApps = selectedAllowedApps - app.packageName
                                                     WhitelistManager.deleteAppUsageLimit(context, app.packageName)
+                                                    // Written to disk immediately: this selection only lived in
+                                                    // Compose state until the sheet's own Save button below was
+                                                    // pressed, so a whitelist change made here was silently lost
+                                                    // whenever the sheet closed any other way -- including the
+                                                    // session-cancel a few lines down, which does exactly that.
+                                                    WhitelistManager.saveWhitelistedPackages(context, selectedAllowedApps)
                                                     if (FocusService.isRunning) {
                                                         val stopIntent = Intent(context, FocusService::class.java)
                                                         context.stopService(stopIntent)
@@ -2385,7 +2393,14 @@ fun MainScreen(
                                         val minutes = if (isUnlimited) -1 else limitMinutes
                                         WhitelistManager.setAppUsageLimitMinutes(context, app.packageName, minutes)
                                         selectedAllowedApps = selectedAllowedApps + app.packageName
-                                        
+                                        // Written to disk immediately, same as the usage limit above -- this
+                                        // used to only update in-memory Compose state, so the app the user
+                                        // just picked was still blocked next session unless the sheet's
+                                        // separate Save button further down was also pressed. Nothing
+                                        // downstream of this point (the session cancel included) is
+                                        // guaranteed to reach that button.
+                                        WhitelistManager.saveWhitelistedPackages(context, selectedAllowedApps + app.packageName)
+
                                         // Cancel running focus session
                                         if (FocusService.isRunning) {
                                             val stopIntent = Intent(context, FocusService::class.java)
@@ -2576,6 +2591,8 @@ fun MainScreen(
                                                 val isWhitelisted = WhitelistManager.getWhitelistedPackages(context).contains(app.packageName)
                                                 if (isFocusActive && !isWhitelisted) {
                                                     Toast.makeText(context, "${app.name} is blocked during Block Session", Toast.LENGTH_SHORT).show()
+                                                } else if (isFocusActive && WhitelistManager.isUsageLimitReached(context, app.packageName)) {
+                                                    Toast.makeText(context, "${app.name}'s time is up for today. Try again tomorrow.", Toast.LENGTH_SHORT).show()
                                                 } else {
                                                     val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
                                                     try {

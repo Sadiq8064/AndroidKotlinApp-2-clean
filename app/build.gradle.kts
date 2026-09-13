@@ -6,7 +6,7 @@ plugins {
   alias(libs.plugins.kotlin.compose.compiler)
   alias(libs.plugins.kotlinx.serialization)
   alias(libs.plugins.ksp)
-  id("atomtasks.android.hilt")
+  alias(libs.plugins.hilt)
   id("kotlin-parcelize")
 }
 
@@ -124,24 +124,14 @@ dependencies {
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 
-  // Minitask integrated modules & libraries
-  implementation(project(":core:ui"))
-  implementation(project(":core:designsystem"))
-  implementation(project(":core:notifications"))
-  implementation(project(":core:logging"))
-  implementation(project(":data"))
-  implementation(project(":feature:agenda"))
-  implementation(project(":feature:settings"))
-  implementation(project(":common:tasks"))
-  implementation(project(":feature:postpone-task"))
-  implementation(project(":feature:detail"))
-  implementation(project(":feature:onboarding"))
-  
   implementation(libs.compose.destinations.core)
   implementation(libs.compose.destinations.bottomsheet)
   ksp(libs.compose.destinations.ksp)
+  implementation(libs.hilt)
+  ksp(libs.hilt.compiler)
   implementation(libs.hilt.navigation.compose)
   implementation(libs.hilt.work)
+  ksp(libs.hilt.ext.compiler)
   implementation(libs.compose.adaptative.navigation)
   coreLibraryDesugaring(libs.android.desugarjdk)
 }

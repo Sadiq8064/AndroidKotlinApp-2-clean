@@ -1,7 +1,6 @@
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
-    includeBuild("minitask_temp/build-logic")
     repositories {
         google {
             content {
@@ -34,35 +33,3 @@ plugins {
 
 rootProject.name = "AndroidKotlinApp"
 include(":app")
-
-
-// Minitask multi-module imports
-val minitaskModules = listOf(
-    ":core",
-    ":core:designsystem",
-    ":core:testing",
-    ":core:ui",
-    ":common",
-    ":common:tasks",
-    ":data",
-    ":feature",
-    ":feature:settings",
-    ":feature:agenda",
-    ":core:analytics",
-    ":feature:postpone-task",
-    ":core:notifications",
-    ":core:logging",
-    ":core:review",
-    ":core:preferences",
-    ":core:jobs",
-    ":core:ui:tasks",
-    ":feature:detail",
-    ":feature:onboarding",
-    ":core:locale"
-)
-
-minitaskModules.forEach { modulePath ->
-    include(modulePath)
-    val relPath = modulePath.replace(":", "/")
-    project(modulePath).projectDir = file("minitask_temp/$relPath")
-}

@@ -82,6 +82,7 @@ class AlarmRingService : Service() {
         alarmId = id
         ringingId = id
         ringing = true
+        SessionLockdown.setUninstallBlocked(this, true)
         // A new ring means any between-rounds countdown is over.
         RoundGapNotifier.clear(this)
 
@@ -188,6 +189,11 @@ class AlarmRingService : Service() {
     private fun stopEverything() {
         ringing = false
         ringingId = -1L
+        // Only lifted if nothing else is guarding the phone -- a block session running
+        // underneath the alarm still needs the app to stay unremovable.
+        if (!FocusService.isRunning) {
+            SessionLockdown.setUninstallBlocked(this, false)
+        }
         try {
             player?.stop()
             player?.release()

@@ -284,6 +284,7 @@ class FocusService : Service() {
 
         remainingSeconds = totalSeconds
         isRunning = true
+        SessionLockdown.setUninstallBlocked(this, true)
 
         startForeground(NOTIFICATION_ID, buildNotification())
 
@@ -460,6 +461,11 @@ class FocusService : Service() {
         unregisterReceiver(blockerReceiver)
         clearSessionEndTime(this)
         removeOverlay()
+        // Only lifted if the alarm isn't separately ringing right now -- that still needs the
+        // app to stay unremovable on its own.
+        if (!AlarmRingService.ringing) {
+            SessionLockdown.setUninstallBlocked(this, false)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -620,9 +626,7 @@ class FocusService : Service() {
     private fun isAllowed(packageName: String): Boolean {
         if (packageName == this.packageName) return true
         if (whitelistedPackages().contains(packageName)) {
-            val limit = WhitelistManager.getAppUsageLimitMinutes(this, packageName)
-            if (limit <= 0) return true
-            return WhitelistManager.getAppUsedSeconds(this, packageName) < limit * 60
+            return !WhitelistManager.isUsageLimitReached(this, packageName)
         }
         return WhitelistManager.isSystemPickerOrChooser(packageName)
     }

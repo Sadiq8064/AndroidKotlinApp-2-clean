@@ -52,6 +52,16 @@ private val STOP_RED = Color(0xFFE05252)
  */
 class AlarmRingActivity : ComponentActivity() {
 
+    override fun onResume() {
+        super.onResume()
+        // Same lockdown MainActivity engages for a block session, armed here too: a ringing
+        // alarm is exactly the "session" issue 2 is about, and it needs the power/restart
+        // menu shut just as completely while it rings.
+        if (SessionLockdown.shouldBeLocked(this)) {
+            SessionLockdown.engage(this)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         showOverLockScreen()
@@ -81,6 +91,15 @@ class AlarmRingActivity : ComponentActivity() {
                     finish()
                 }
             )
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Only drops lock task mode; if a block session is separately still running, the home
+        // screen's own poll re-engages it within a second of this activity going away.
+        if (!AlarmRingService.ringing) {
+            SessionLockdown.release(this)
         }
     }
 

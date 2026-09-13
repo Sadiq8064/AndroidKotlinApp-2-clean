@@ -138,8 +138,19 @@ class UrlBlockerService : AccessibilityService() {
             }
         }
 
-        // Shutdown / Restart Prevention: If a session is active, check if the power menu is shown
-        if (FocusService.isRunning && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        // Shutdown / Restart Prevention: If a session is active, check if the power menu is shown.
+        //
+        // Restricted to systemui, which is the only place a power menu can come from -- and the
+        // restriction matters beyond correctness. Every window on screen used to be walked node
+        // by node on *every* window-state change from *any* app, session-wide: the soft
+        // keyboard's own appearance raises exactly this event, so each time it opened during a
+        // session, this scan (still nested loops of AccessibilityNodeInfo lookups) ran
+        // synchronously on the main thread first, over the keyboard's own window included --
+        // which is what made the keyboard look stuck while opening.
+        if (FocusService.isRunning &&
+            event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            packageName == "com.android.systemui"
+        ) {
             val interactiveWindows = windows
             if (interactiveWindows != null) {
                 for (window in interactiveWindows) {
